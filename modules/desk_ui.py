@@ -1,4 +1,4 @@
-"""Futures Cheat Code — Trade Desk + Crypto ranks + liquidity levels"""
+"""Futures Cheat Code — Trade Desk + Crypto + FlashAlpha GEX"""
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
@@ -6,12 +6,9 @@ import pytz
 from dotenv import load_dotenv
 import pandas as pd
 import plotly.graph_objects as go
-import os
 
 load_dotenv()
-
 st.set_page_config(page_title="Futures Cheat Code", page_icon="⚡", layout="wide", initial_sidebar_state="collapsed")
-
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
@@ -55,7 +52,7 @@ from modules.strategy import generate_signal, get_asia_window, get_hunt_window
 from modules.alerts import send_engine_alert, test_alert
 from modules.agent import get_agent_reply
 from modules.crypto_rank import fetch_markets, fear_greed, top_longs, top_shorts
-from modules.liquidity_levels import skylit_heatmap, extract_key_nodes, qqq_to_nq_levels, fallback_structure_levels
+from modules.liquidity_levels import load_gex_for_nq, fallback_structure_levels
 
 @st.cache_data(ttl=25, show_spinner=False)
 def load_nq():
@@ -72,20 +69,6 @@ def load_crypto():
 @st.cache_data(ttl=300, show_spinner=False)
 def load_fng():
     return fear_greed()
-
-@st.cache_data(ttl=60, show_spinner=False)
-def load_gex_nodes(nq_price):
-    raw = skylit_heatmap("QQQ", "gamma")
-    nodes = extract_key_nodes(raw, max_nodes=6) if raw else []
-    qqq_spot = None
-    if raw:
-        try:
-            qqq_spot = raw.get("data", {}).get("symbols", [{}])[0].get("spot")
-        except Exception:
-            pass
-    if nodes and nq_price and qqq_spot:
-        return qqq_to_nq_levels(nodes, nq_price, qqq_spot), True
-    return nodes, bool(raw)
 
 def build_ctx(df, mag7):
     mag = get_mag7_confluence_score(mag7)
@@ -150,7 +133,8 @@ with st.spinner(""):
 ctx = build_ctx(df, mag7)
 action, reason, conf = verdict(ctx)
 now_ny, now_ct = datetime.now(NY), datetime.now(CT)
-gex_nodes, has_skylit = load_gex_nodes(ctx["price"]) if ctx["price"] else ([], False)
+gex_nodes, gex_provider = load_gex_for_nq(ctx["price"]) if ctx["price"] else ([], "none")
+has_gex = gex_provider != "none"
 chart_extra = gex_nodes if gex_nodes else []
 
 h1, h2 = st.columns([3, 1])
@@ -171,7 +155,7 @@ with tab_desk:
     st.markdown(f"""<div class="kpi-grid"><div class="kpi"><div class="label">NQ</div><div class="value">{px_}</div><div class="sub">{dist}</div></div><div class="kpi"><div class="label">Bias</div><div class="value">{ctx['bias']}</div><div class="sub">vs 8PM open</div></div><div class="kpi"><div class="label">Mag7</div><div class="value">{ctx['mag']['label'].replace('STRONG ','')}</div><div class="sub">{ctx['mag'].get('bullish',0)}/{ctx['mag'].get('total',7)} bull</div></div></div>""", unsafe_allow_html=True)
     asia_chip = '<span class="chip chip-on">Asia ON</span>' if ctx["asia"] else '<span class="chip chip-off">Asia off</span>'
     hunt_chip = '<span class="chip chip-on">Hunt ON</span>' if ctx["hunt"] else '<span class="chip chip-off">Hunt off</span>'
-    gex_chip = '<span class="chip chip-on">GEX live</span>' if has_skylit else '<span class="chip chip-off">GEX needs Skylit key</span>'
+    gex_chip = f'<span class="chip chip-on">GEX {gex_provider}</span>' if has_gex else '<span class="chip chip-off">GEX needs API key</span>'
     st.markdown(asia_chip + hunt_chip + gex_chip, unsafe_allow_html=True)
     st.markdown('<div class="sec">Key levels</div>', unsafe_allow_html=True)
     rows = []
@@ -186,8 +170,8 @@ with tab_desk:
     st.markdown('<div class="sec">NQ · 5 minute · liquidity overlays</div>', unsafe_allow_html=True)
     if len(df) > 5:
         st.plotly_chart(candle_fig(df, ctx["o8"], ctx["rh"], ctx["rl"], extra_levels=chart_extra), use_container_width=True, config={"displayModeBar": False})
-        if not has_skylit:
-            st.caption("Add SKYLIT_API_KEY in Secrets for live King/Gatekeeper gamma nodes (QQQ→NQ scaled).")
+        if not has_gex:
+            st.caption("Add FLASHALPHA_API_KEY (preferred) or SKYLIT_API_KEY in Secrets for live gamma walls on NQ.")
     else:
         st.info("Loading NQ candles…")
 
@@ -263,10 +247,10 @@ with tab_mag:
 with tab_alert:
     st.markdown('<div class="sec">Phone alerts + API keys</div>', unsafe_allow_html=True)
     st.write("**Streamlit → Manage app → Settings → Secrets**")
-    st.code('TELEGRAM_BOT_TOKEN = "..."\nTELEGRAM_CHAT_ID = "..."\nSKYLIT_API_KEY = "sk_live_..."  # optional GEX heatmaps', language="toml")
-    st.caption("Skylit: new accounts get ~5k credits. QQQ gamma nodes scale onto NQ chart. True dark-pool needs paid feed (Unusual Whales).")
+    st.code('TELEGRAM_BOT_TOKEN = "..."\nTELEGRAM_CHAT_ID = "..."\nFLASHALPHA_API_KEY = "..."   # preferred GEX\nSKYLIT_API_KEY = "sk_live_..."  # optional heatmap', language="toml")
+    st.caption("FlashAlpha free key: flashalpha.com (5 req/day). QQQ walls scale onto NQ. Basic plan unlocks QQQ fully.")
     if st.button("Send test alert"):
         ok = test_alert()
         st.success("Sent to Telegram") if ok else st.error("Not configured or failed")
 
-st.caption("NQ · Yahoo · Crypto · CoinGecko · GEX · Skylit optional · Not financial advice")
+st.caption("NQ · Yahoo · Crypto · CoinGecko · GEX · FlashAlpha/Skylit optional · Not financial advice")
