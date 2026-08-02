@@ -178,9 +178,10 @@ def crypto_bar_chart(df, title):
         yaxis=dict(autorange="reversed", showgrid=False, color="#c5c9d3"),
         showlegend=False,
     )
+    # Plotly shape colors must be 6-digit hex (no alpha suffix)
     fig.add_vline(x=50, line_dash="dot", line_color="#3a4150", line_width=1)
-    fig.add_vline(x=60, line_dash="dot", line_color="#00c85344", line_width=1)
-    fig.add_vline(x=40, line_dash="dot", line_color="#ff525244", line_width=1)
+    fig.add_vline(x=60, line_dash="dot", line_color="#00c853", line_width=1)
+    fig.add_vline(x=40, line_dash="dot", line_color="#ff5252", line_width=1)
     return fig
 
 with st.spinner(""):
