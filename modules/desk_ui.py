@@ -55,8 +55,25 @@ from modules.data_fetcher import get_futures_ohlcv, get_session_range, get_mag7_
 from modules.strategy import generate_signal, get_asia_window, get_hunt_window
 from modules.alerts import send_engine_alert, test_alert
 from modules.agent import get_agent_reply
-from modules.crypto_rank import fetch_markets, fear_greed, top_longs, top_shorts, format_price, format_mcap
+from modules.crypto_rank import fetch_markets, fear_greed, top_longs, top_shorts
 from modules.liquidity_levels import load_gex_for_nq
+
+def format_price(p) -> str:
+    if p is None: return "—"
+    try: p = float(p)
+    except (TypeError, ValueError): return "—"
+    if p >= 1000: return f"${p:,.0f}"
+    if p >= 1: return f"${p:,.2f}"
+    if p >= 0.01: return f"${p:.4f}"
+    return f"${p:.6f}"
+
+def format_mcap(m) -> str:
+    try: m = float(m or 0)
+    except (TypeError, ValueError): return "—"
+    if m >= 1e12: return f"${m/1e12:.2f}T"
+    if m >= 1e9: return f"${m/1e9:.1f}B"
+    if m >= 1e6: return f"${m/1e6:.0f}M"
+    return f"${m:,.0f}"
 
 @st.cache_data(ttl=25, show_spinner=False)
 def load_nq():
@@ -184,19 +201,19 @@ tab_desk, tab_crypto, tab_engine, tab_ai, tab_mag, tab_alert = st.tabs(["Trade D
 
 with tab_desk:
     if action == "LONG":
-        st.markdown(f"""<div class="hero hero-long"><h1 style="color:#00c853">▲ LONG</h1><p>{reason}</p><div class="meta">Confidence {conf}% · refreshes every 30s</div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class=\"hero hero-long\"><h1 style=\"color:#00c853\">▲ LONG</h1><p>{reason}</p><div class=\"meta\">Confidence {conf}% · refreshes every 30s</div></div>""", unsafe_allow_html=True)
     elif action == "SHORT":
-        st.markdown(f"""<div class="hero hero-short"><h1 style="color:#ff5252">▼ SHORT</h1><p>{reason}</p><div class="meta">Confidence {conf}% · refreshes every 30s</div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class=\"hero hero-short\"><h1 style=\"color:#ff5252\">▼ SHORT</h1><p>{reason}</p><div class=\"meta\">Confidence {conf}% · refreshes every 30s</div></div>""", unsafe_allow_html=True)
     else:
-        st.markdown(f"""<div class="hero hero-wait"><h1 style="color:#9aa0a6">■ WAIT</h1><p>{reason}</p><div class="meta">Confidence {conf}% · no forced trade</div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class=\"hero hero-wait\"><h1 style=\"color:#9aa0a6\">■ WAIT</h1><p>{reason}</p><div class=\"meta\">Confidence {conf}% · no forced trade</div></div>""", unsafe_allow_html=True)
     px_ = f"{ctx['price']:,.2f}" if ctx["price"] else "—"
     dist = f"{(ctx['price']-ctx['o8']):+.1f} pts from open" if ctx["price"] and ctx["o8"] else ""
-    st.markdown(f"""<div class="kpi-grid"><div class="kpi"><div class="label">NQ</div><div class="value">{px_}</div><div class="sub">{dist}</div></div><div class="kpi"><div class="label">Bias</div><div class="value">{ctx['bias']}</div><div class="sub">vs 8PM open</div></div><div class="kpi"><div class="label">Mag7</div><div class="value">{ctx['mag']['label'].replace('STRONG ','')}</div><div class="sub">{ctx['mag'].get('bullish',0)}/{ctx['mag'].get('total',7)} bull</div></div></div>""", unsafe_allow_html=True)
-    asia_chip = '<span class="chip chip-on">Asia ON</span>' if ctx["asia"] else '<span class="chip chip-off">Asia off</span>'
-    hunt_chip = '<span class="chip chip-on">Hunt ON</span>' if ctx["hunt"] else '<span class="chip chip-off">Hunt off</span>'
-    gex_chip = f'<span class="chip chip-on">GEX {gex_provider}</span>' if has_gex else '<span class="chip chip-off">GEX needs key</span>'
+    st.markdown(f"""<div class=\"kpi-grid\"><div class=\"kpi\"><div class=\"label\">NQ</div><div class=\"value\">{px_}</div><div class=\"sub\">{dist}</div></div><div class=\"kpi\"><div class=\"label\">Bias</div><div class=\"value\">{ctx['bias']}</div><div class=\"sub\">vs 8PM open</div></div><div class=\"kpi\"><div class=\"label\">Mag7</div><div class=\"value\">{ctx['mag']['label'].replace('STRONG ','')}</div><div class=\"sub\">{ctx['mag'].get('bullish',0)}/{ctx['mag'].get('total',7)} bull</div></div></div>""", unsafe_allow_html=True)
+    asia_chip = '<span class=\"chip chip-on\">Asia ON</span>' if ctx["asia"] else '<span class=\"chip chip-off\">Asia off</span>'
+    hunt_chip = '<span class=\"chip chip-on\">Hunt ON</span>' if ctx["hunt"] else '<span class=\"chip chip-off\">Hunt off</span>'
+    gex_chip = f'<span class=\"chip chip-on\">GEX {gex_provider}</span>' if has_gex else '<span class=\"chip chip-off\">GEX needs key</span>'
     st.markdown(asia_chip + hunt_chip + gex_chip, unsafe_allow_html=True)
-    st.markdown('<div class="sec">Key levels</div>', unsafe_allow_html=True)
+    st.markdown('<div class=\"sec\">Key levels</div>', unsafe_allow_html=True)
     rows = []
     if ctx["o8"]: rows.append(("8PM Open", f"{ctx['o8']:,.2f}"))
     if ctx["rh"] and ctx["rl"]:
@@ -204,11 +221,11 @@ with tab_desk:
     for n in (gex_nodes or [])[:5]:
         rows.append((n.get("label", "GEX"), f"{n['level']:,.2f}"))
     if rows:
-        html = '<div class="levels">' + "".join(f'<div class="lvl"><span class="k">{k}</span><span class="v">{v}</span></div>' for k,v in rows) + "</div>"
+        html = '<div class=\"levels\">' + "".join(f'<div class=\"lvl\"><span class=\"k\">{k}</span><span class=\"v\">{v}</span></div>' for k,v in rows) + "</div>"
         st.markdown(html, unsafe_allow_html=True)
     else:
         st.caption("Levels build once Asia session data is available.")
-    st.markdown('<div class="sec">NQ · 5m · liquidity overlays</div>', unsafe_allow_html=True)
+    st.markdown('<div class=\"sec\">NQ · 5m · liquidity overlays</div>', unsafe_allow_html=True)
     if len(df) > 5:
         st.plotly_chart(candle_fig(df, ctx["o8"], ctx["rh"], ctx["rl"], extra_levels=chart_extra), use_container_width=True, config={"displayModeBar": False})
         if not has_gex:
@@ -217,8 +234,8 @@ with tab_desk:
         st.info("Loading NQ candles…")
 
 with tab_crypto:
-    st.markdown('<div class="sec">Crypto ranking</div>', unsafe_allow_html=True)
-    st.markdown("""<div class="score-box"><strong>Score is 0–100</strong> (bullishness from 1h / 24h / 7d momentum).<br><strong>50</strong> = neutral · <strong>≥60</strong> lean long · <strong>≤40</strong> lean short · <strong>≥75</strong> strong bull · <strong>≤25</strong> strong bear</div>""", unsafe_allow_html=True)
+    st.markdown('<div class=\"sec\">Crypto ranking</div>', unsafe_allow_html=True)
+    st.markdown("""<div class=\"score-box\"><strong>Score is 0–100</strong> (bullishness from 1h / 24h / 7d momentum).<br><strong>50</strong> = neutral · <strong>≥60</strong> lean long · <strong>≤40</strong> lean short · <strong>≥75</strong> strong bull · <strong>≤25</strong> strong bear</div>""", unsafe_allow_html=True)
     fng = load_fng()
     c1, c2, c3 = st.columns(3)
     c1.metric("Fear & Greed", f"{fng.get('value', '—')}" if fng.get("value") is not None else "—")
@@ -258,8 +275,8 @@ with tab_crypto:
             st.dataframe(table[cols].rename(columns=rename), use_container_width=True, hide_index=True, height=min(480, 40 + 35 * min(len(table), 20)))
 
 with tab_engine:
-    st.markdown('<div class="sec">Autonomous paper engine</div>', unsafe_allow_html=True)
-    st.markdown('<p class="hint">Models a prop account: $3k eval target · $2k max loss · risk scales with confluence and phase (Eval aggressive / Funded protective).</p>', unsafe_allow_html=True)
+    st.markdown('<div class=\"sec\">Autonomous paper engine</div>', unsafe_allow_html=True)
+    st.markdown('<p class=\"hint\">Models a prop account: $3k eval target · $2k max loss · risk scales with confluence and phase (Eval aggressive / Funded protective).</p>', unsafe_allow_html=True)
     try:
         from modules.paper_engine import (init_engine_db, get_engine_state, get_open_paper_trade, get_closed_paper_trades, compute_engine_stats, engine_decide_and_act, reset_engine, get_dynamic_risk_usd, get_phase, STARTING_EQUITY, PROFIT_TARGET)
         init_engine_db()
@@ -278,7 +295,7 @@ with tab_engine:
         elif result.get("action") == "HOLDING": st.info(f"Holding {result.get('direction')} from {result.get('entry')}")
         elif result.get("action") == "HALTED": st.error(result.get("reason", "Halted"))
         if open_pos: st.write(f"**Live:** {open_pos['direction']} @ {open_pos['entry_price']} · SL {open_pos['stop_price']} · TP {open_pos['target_price']}")
-        st.markdown('<div class="sec">Self-score (engine trades only)</div>', unsafe_allow_html=True)
+        st.markdown('<div class=\"sec\">Self-score (engine trades only)</div>', unsafe_allow_html=True)
         s1,s2,s3,s4 = st.columns(4)
         s1.metric("Trades", stats.get("total_trades", 0)); s2.metric("Win rate", f"{stats.get('win_rate', 0)}%")
         s3.metric("Avg points", stats.get("avg_points", 0)); s4.metric("Total PnL", f"${stats.get('total_pnl_usd', 0)}")
@@ -293,8 +310,8 @@ with tab_engine:
         st.error(f"Engine unavailable: {e}")
 
 with tab_ai:
-    st.markdown('<div class="sec">Desk agent</div>', unsafe_allow_html=True)
-    st.markdown('<p class="hint">Ask: long or short? levels? risk size? Asia status? crypto bias? Mag7 read?</p>', unsafe_allow_html=True)
+    st.markdown('<div class=\"sec\">Desk agent</div>', unsafe_allow_html=True)
+    st.markdown('<p class=\"hint\">Ask: long or short? levels? risk size? Asia status? crypto bias? Mag7 read?</p>', unsafe_allow_html=True)
     if "chat" not in st.session_state:
         st.session_state.chat = [{"role": "assistant", "content": "Desk is live. Ask for bias, levels, risk, or crypto rankings."}]
     for m in st.session_state.chat:
@@ -305,9 +322,9 @@ with tab_ai:
         st.session_state.chat.append({"role": "assistant", "content": ans}); st.rerun()
 
 with tab_mag:
-    st.markdown('<div class="sec">Mag7 confluence</div>', unsafe_allow_html=True)
+    st.markdown('<div class=\"sec\">Mag7 confluence</div>', unsafe_allow_html=True)
     m = ctx["mag"]
-    st.markdown('<p class="hint">Daily bias from the seven mega-cap names. Used as confluence with NQ Asia structure — not a standalone signal.</p>', unsafe_allow_html=True)
+    st.markdown('<p class=\"hint\">Daily bias from the seven mega-cap names. Used as confluence with NQ Asia structure — not a standalone signal.</p>', unsafe_allow_html=True)
     a, b = st.columns(2)
     a.metric("Read", m.get("label", "—"))
     b.metric("Bullish count", f"{m.get('bullish', 0)} / {m.get('total', 7)}")
@@ -317,10 +334,10 @@ with tab_mag:
         st.caption("Mag7 snapshot unavailable right now.")
 
 with tab_alert:
-    st.markdown('<div class="sec">Phone alerts + API keys</div>', unsafe_allow_html=True)
-    st.markdown('<p class="hint">Streamlit → Manage app → Settings → Secrets. Engine ENTER/EXIT pushes to Telegram when configured.</p>', unsafe_allow_html=True)
+    st.markdown('<div class=\"sec\">Phone alerts + API keys</div>', unsafe_allow_html=True)
+    st.markdown('<p class=\"hint\">Streamlit → Manage app → Settings → Secrets. Engine ENTER/EXIT pushes to Telegram when configured.</p>', unsafe_allow_html=True)
     st.code('TELEGRAM_BOT_TOKEN = "123:ABC"\nTELEGRAM_CHAT_ID = "987654321"\nFLASHALPHA_API_KEY = "your_fa_key"   # GEX walls on chart\nSKYLIT_API_KEY = "sk_live_..."       # optional heatmap backup', language="toml")
-    st.markdown("""<div class="score-box"><strong>FlashAlpha</strong> — free key at flashalpha.com (5 req/day). QQQ may need Basic plan.<br><strong>Telegram</strong> — @BotFather → create bot → chat id via @userinfobot.<br>Without keys: Asia structure levels still work; GEX chip stays off.</div>""", unsafe_allow_html=True)
+    st.markdown("""<div class=\"score-box\"><strong>FlashAlpha</strong> — free key at flashalpha.com (5 req/day). QQQ may need Basic plan.<br><strong>Telegram</strong> — @BotFather → create bot → chat id via @userinfobot.<br>Without keys: Asia structure levels still work; GEX chip stays off.</div>""", unsafe_allow_html=True)
     if st.button("Send test alert"):
         ok = test_alert()
         st.success("Sent to Telegram") if ok else st.error("Not configured or failed — check secrets")
