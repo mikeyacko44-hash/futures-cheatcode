@@ -1,4 +1,4 @@
-"""Core time-based strategy logic - Asia/NY model"""
+"""Core time-based strategy logic - Asia/NY model (v2 more responsive)"""
 from datetime import datetime, time
 import pytz
 import pandas as pd
@@ -33,6 +33,8 @@ def compute_premium_discount(current_price, open_8pm):
     return "AT_OPEN"
 
 def detect_sweep(high, low, range_high, range_low, close):
+    if range_high is None or range_low is None:
+        return None
     if high > range_high and close < range_high: return "HIGH"
     if low < range_low and close > range_low: return "LOW"
     return None
@@ -43,7 +45,7 @@ def simple_cisd_long(df, lookback=3):
     body = abs(last["Close"] - last["Open"])
     range_ = last["High"] - last["Low"]
     if range_ == 0: return False
-    return last["Close"] > last["Open"] and (body / range_) > 0.55
+    return last["Close"] > last["Open"] and (body / range_) > 0.50
 
 def simple_cisd_short(df, lookback=3):
     if len(df) < lookback + 1: return False
@@ -51,28 +53,71 @@ def simple_cisd_short(df, lookback=3):
     body = abs(last["Close"] - last["Open"])
     range_ = last["High"] - last["Low"]
     if range_ == 0: return False
-    return last["Close"] < last["Open"] and (body / range_) > 0.55
+    return last["Close"] < last["Open"] and (body / range_) > 0.50
+
+def near_level(price, level, tol_pts=8.0):
+    if level is None or price is None:
+        return False
+    return abs(price - level) <= tol_pts
 
 def generate_signal(df, open_8pm, range_high, range_low, session="ASIA"):
     if df is None or len(df) < 5:
         return {"action": "NONE", "bias": "NEUTRAL", "confidence": 0, "reason": "Insufficient data"}
+
     current = df.iloc[-1]
-    price, high, low, close = current["Close"], current["High"], current["Low"], current["Close"]
+    price = float(current["Close"])
+    high = float(current["High"])
+    low = float(current["Low"])
+    close = price
+
     bias = compute_premium_discount(price, open_8pm)
-    sweep = detect_sweep(high, low, range_high, range_low, close) if range_high and range_low else None
+    sweep = detect_sweep(high, low, range_high, range_low, close)
+
     action, confidence, reason = "NONE", 0, []
-    if bias == "DISCOUNT" and (sweep == "LOW" or simple_cisd_long(df)):
-        action, confidence = "LONG", 65
-        reason.append("Discount + sweep/CISD long")
-        if sweep == "LOW": confidence += 15; reason.append("Liquidity sweep of range low")
-    elif bias == "PREMIUM" and (sweep == "HIGH" or simple_cisd_short(df)):
-        action, confidence = "SHORT", 65
-        reason.append("Premium + sweep/CISD short")
-        if sweep == "HIGH": confidence += 15; reason.append("Liquidity sweep of range high")
+
+    # Stronger long conditions
+    if bias == "DISCOUNT":
+        if sweep == "LOW" or simple_cisd_long(df):
+            action, confidence = "LONG", 68
+            reason.append("Discount + sweep/CISD long")
+            if sweep == "LOW":
+                confidence += 12
+                reason.append("Liquidity sweep of range low")
+        elif near_level(price, range_low, 12) and simple_cisd_long(df):
+            action, confidence = "LONG", 62
+            reason.append("Near Asia Low + bullish close")
+
+    # Stronger short conditions
+    elif bias == "PREMIUM":
+        if sweep == "HIGH" or simple_cisd_short(df):
+            action, confidence = "SHORT", 68
+            reason.append("Premium + sweep/CISD short")
+            if sweep == "HIGH":
+                confidence += 12
+                reason.append("Liquidity sweep of range high")
+        elif near_level(price, range_high, 12) and simple_cisd_short(df):
+            action, confidence = "SHORT", 62
+            reason.append("Near Asia High + bearish close")
+
     now = get_ny_now()
-    if session == "ASIA" and get_asia_window(now): confidence += 10; reason.append("Inside Asia window")
-    if session == "ASIA" and get_hunt_window(now): confidence += 10; reason.append("Inside hunt window")
-    return {"action": action, "bias": bias, "confidence": min(confidence, 95),
-            "reason": " | ".join(reason) if reason else "No setup", "price": price,
-            "range_high": range_high, "range_low": range_low, "open_8pm": open_8pm,
-            "timestamp": now.isoformat()}
+    if session == "ASIA" and get_asia_window(now):
+        confidence += 8
+        reason.append("Inside Asia window")
+    if session == "ASIA" and get_hunt_window(now):
+        confidence += 10
+        reason.append("Inside hunt window")
+
+    # Soften absolute floor so it can actually fire
+    confidence = min(confidence, 95)
+
+    return {
+        "action": action,
+        "bias": bias,
+        "confidence": confidence,
+        "reason": " | ".join(reason) if reason else "No clear setup",
+        "price": price,
+        "range_high": range_high,
+        "range_low": range_low,
+        "open_8pm": open_8pm,
+        "timestamp": now.isoformat(),
+    }

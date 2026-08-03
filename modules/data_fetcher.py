@@ -1,6 +1,7 @@
 """
-Data layer. Primary: yfinance (delayed continuous futures + Mag7).
-True CME real-time requires a paid feed (Databento, Rithmic, CQG, etc.) — not wired here.
+Data layer v2.
+Primary: yfinance (delayed) with clean fallback.
+Optional: Databento when DATABENTO_API_KEY is set.
 """
 
 import os
@@ -13,15 +14,24 @@ from dotenv import load_dotenv
 load_dotenv()
 
 NY_TZ = pytz.timezone("America/New_York")
-
 YAHOO_NQ = "NQ=F"
-YAHOO_ES = "ES=F"
 MAG7 = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA"]
 STALE_AFTER_MINUTES = 45
 
+def _has_databento() -> bool:
+    return bool(os.getenv("DATABENTO_API_KEY"))
 
 def get_futures_ohlcv(symbol: str = "NQ=F", period: str = "5d", interval: str = "5m") -> pd.DataFrame:
-    """Delayed OHLCV via Yahoo. Not exchange real-time."""
+    """Prefer Databento when key present, otherwise Yahoo."""
+    if _has_databento() and symbol in ("NQ=F", "NQ", "MNQ"):
+        try:
+            return _databento_ohlcv(period=period, interval=interval)
+        except Exception as e:
+            print(f"Databento failed, falling back to Yahoo: {e}")
+
+    return _yahoo_ohlcv(symbol, period, interval)
+
+def _yahoo_ohlcv(symbol: str, period: str, interval: str) -> pd.DataFrame:
     try:
         ticker = yf.Ticker(symbol)
         df = ticker.history(period=period, interval=interval, auto_adjust=True)
@@ -37,6 +47,51 @@ def get_futures_ohlcv(symbol: str = "NQ=F", period: str = "5d", interval: str = 
         print(f"yfinance error: {e}")
         return pd.DataFrame()
 
+def _databento_ohlcv(period: str = "2d", interval: str = "5m") -> pd.DataFrame:
+    """Pull continuous NQ via Databento Historical."""
+    import databento as db
+
+    client = db.Historical(os.getenv("DATABENTO_API_KEY"))
+
+    # Map interval roughly
+    schema = "ohlcv-1m" if interval in ("1m", "5m", "15m") else "ohlcv-1s"
+
+    end = datetime.now(NY_TZ)
+    if period.endswith("d"):
+        days = int(period.replace("d", "") or 2)
+        start = end - timedelta(days=days)
+    else:
+        start = end - timedelta(days=2)
+
+    data = client.timeseries.get_range(
+        dataset="GLBX.MDP3",
+        symbols="NQ.v.0",
+        stype_in="continuous",
+        schema=schema,
+        start=start.isoformat(),
+        end=end.isoformat(),
+    )
+    df = data.to_df()
+    if df.empty:
+        return pd.DataFrame()
+
+    # Normalize column names to match existing code
+    rename = {
+        "open": "Open",
+        "high": "High",
+        "low": "Low",
+        "close": "Close",
+        "volume": "Volume",
+    }
+    df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+    keep = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in df.columns]
+    df = df[keep].dropna()
+
+    if df.index.tz is None:
+        df.index = df.index.tz_localize("UTC").tz_convert(NY_TZ)
+    else:
+        df.index = df.index.tz_convert(NY_TZ)
+    return df
 
 def is_stale(df: pd.DataFrame, max_age_minutes: int = STALE_AFTER_MINUTES) -> bool:
     if df is None or df.empty:
@@ -50,7 +105,6 @@ def is_stale(df: pd.DataFrame, max_age_minutes: int = STALE_AFTER_MINUTES) -> bo
     except Exception:
         return True
 
-
 def get_session_range(
     df: pd.DataFrame,
     start_hour: int = 20,
@@ -58,7 +112,6 @@ def get_session_range(
     end_hour: int = 0,
     end_min: int = 0,
 ) -> tuple:
-    """High/low/open of the most recent Asia-style window only (overnight-safe)."""
     if df is None or df.empty:
         return None, None, None
 
@@ -81,7 +134,6 @@ def get_session_range(
     if session.empty:
         return None, None, None
     return float(session["High"].max()), float(session["Low"].min()), float(session.iloc[0]["Open"])
-
 
 def get_mag7_snapshot() -> pd.DataFrame:
     rows = []
@@ -110,7 +162,6 @@ def get_mag7_snapshot() -> pd.DataFrame:
         except Exception:
             continue
     return pd.DataFrame(rows)
-
 
 def get_mag7_confluence_score(mag7_df: pd.DataFrame) -> dict:
     if mag7_df is None or mag7_df.empty:
