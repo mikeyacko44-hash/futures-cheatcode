@@ -1,4 +1,4 @@
-"""Futures Cheat Code — mobile-safe single-page nav (no blank-screen tabs)."""
+"""Futures Cheat Code — mobile-safe single-page nav (no blank-screen tabs). v2"""
 import sys
 from pathlib import Path
 
@@ -180,16 +180,20 @@ def verdict(ctx):
     bias = ctx.get("bias", "UNKNOWN")
     asia, hunt = ctx.get("asia"), ctx.get("hunt")
     mag = (ctx.get("mag") or {}).get("label", "—")
-    if a == "LONG" and c >= 65:
+
+    # v2: lower threshold so it can actually fire in Asia
+    if a == "LONG" and c >= 60:
         return "LONG", s.get("reason", "Model long"), c
-    if a == "SHORT" and c >= 65:
+    if a == "SHORT" and c >= 60:
         return "SHORT", s.get("reason", "Model short"), c
+
     if not asia and not hunt:
         if bias == "DISCOUNT" and "BULLISH" in str(mag):
             return "WAIT", f"Lean long — Discount + {mag}. Best after 8PM ET.", max(c, 40)
         if bias == "PREMIUM" and "BEARISH" in str(mag):
             return "WAIT", f"Lean short — Premium + {mag}. Wait confirmation.", max(c, 40)
         return "WAIT", f"Outside windows. Bias {bias} · Mag7 {mag}.", max(c, 25)
+
     if bias == "DISCOUNT":
         return "WAIT", "Discount — watch for long confirmation.", max(c, 48)
     if bias == "PREMIUM":
@@ -199,7 +203,8 @@ def verdict(ctx):
 
 def make_candle(df, o8, rh, rl):
     import plotly.graph_objects as go
-    d = df.tail(60).copy()
+    # Focus on recent action only (last ~4-6 hours of 5m bars)
+    d = df.tail(72).copy()
     fig = go.Figure(go.Candlestick(
         x=d.index, open=d["Open"], high=d["High"], low=d["Low"], close=d["Close"],
         increasing_line_color="#00c853", increasing_fillcolor="#00c853",
@@ -207,13 +212,13 @@ def make_candle(df, o8, rh, rl):
         whiskerwidth=0.5, name="NQ",
     ))
     if o8:
-        fig.add_hline(y=float(o8), line_dash="dash", line_color="#ffc107", line_width=1)
+        fig.add_hline(y=float(o8), line_dash="dash", line_color="#ffc107", line_width=1.2)
     if rh:
         fig.add_hline(y=float(rh), line_dash="dot", line_color="#7c8aff", line_width=1)
     if rl:
         fig.add_hline(y=float(rl), line_dash="dot", line_color="#7c8aff", line_width=1)
     fig.update_layout(
-        height=280, margin=dict(l=0, r=4, t=4, b=0),
+        height=300, margin=dict(l=0, r=4, t=8, b=0),
         paper_bgcolor="#0a0c10", plot_bgcolor="#0a0c10",
         font=dict(color="#c5c9d3", size=10),
         xaxis=dict(showgrid=False, rangeslider_visible=False),
@@ -230,7 +235,7 @@ if err_import is not None:
 now_ny = datetime.now(NY)
 now_ct = datetime.now(CT)
 st.markdown("### ⚡ Futures Cheat Code")
-st.caption(f"NY {now_ny.strftime('%H:%M')} · CT {now_ct.strftime('%H:%M')} · Yahoo delayed")
+st.caption(f"NY {now_ny.strftime('%H:%M')} · CT {now_ct.strftime('%H:%M')} · Yahoo delayed (Databento ready)")
 
 page = st.radio(
     "nav",
@@ -282,7 +287,7 @@ if page == "Desk":
             st.markdown(html, unsafe_allow_html=True)
         else:
             st.caption("Levels appear when Asia data is ready.")
-        if st.checkbox("Show NQ chart", value=False, key="show_nq_chart"):
+        if st.checkbox("Show NQ chart", value=True, key="show_nq_chart"):
             if df is not None and len(df) > 5:
                 try:
                     fig = make_candle(df, ctx.get("o8"), ctx.get("rh"), ctx.get("rl"))
@@ -420,11 +425,11 @@ elif page == "Alerts":
     try:
         st.markdown('<div class="sec">Alerts & secrets</div>', unsafe_allow_html=True)
         st.caption("Manage app → Settings → Secrets")
-        st.code('TELEGRAM_BOT_TOKEN = "123:ABC"\nTELEGRAM_CHAT_ID = "987654321"\nFLASHALPHA_API_KEY = "your_key"', language="toml")
+        st.code('TELEGRAM_BOT_TOKEN = "123:ABC"\nTELEGRAM_CHAT_ID = "987654321"\nFLASHALPHA_API_KEY = "your_key"\nDATABENTO_API_KEY = "db-..."', language="toml")
         if st.button("Send test Telegram", key="tg"):
             ok = test_alert()
             st.success("Sent") if ok else st.error("Failed — check secrets")
     except Exception as e:
         st.error(f"Alerts error: {e}")
 
-st.caption("Personal desk · Yahoo delayed · Not financial advice")
+st.caption("Personal desk · Yahoo delayed (Databento ready) · Not financial advice")
